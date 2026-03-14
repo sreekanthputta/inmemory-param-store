@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parameter Store</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f8f8f8; font-weight: 600; }
+        tr:hover { background: #f5f5f5; }
+        input[type="text"], input[type="password"], select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input:focus, select:focus { outline: none; border-color: #4CAF50; }
+        .modified { background: #fff3cd !important; }
+        .pending-delete { background: #f8d7da !important; opacity: 0.7; }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 5px;
+        }
+        .btn-primary { background: #4CAF50; color: white; }
+        .btn-primary:hover { background: #45a049; }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-small { padding: 4px 8px; font-size: 12px; }
+        .status { padding: 10px; border-radius: 4px; margin-bottom: 15px; display: none; }
+        .status.success { background: #d4edda; color: #155724; display: block; }
+        .status.error { background: #f8d7da; color: #721c24; display: block; }
+        .timestamp { font-size: 12px; color: #666; }
+        .type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+        .type-text { background: #e3f2fd; color: #1565c0; }
+        .type-password { background: #fce4ec; color: #c62828; }
+        .actions { margin-top: 20px; display: flex; align-items: center; gap: 10px; }
+        .change-count {
+            font-size: 14px;
+            color: #666;
+            padding: 8px 12px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        .change-count.has-changes { background: #fff3cd; color: #856404; font-weight: 500; }
+        .new-param-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr 100px auto;
+            gap: 10px;
+            align-items: end;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed #ddd;
+        }
+        .form-group label { display: block; margin-bottom: 5px; font-size: 12px; color: #666; }
+        .password-cell { display: flex; align-items: center; gap: 8px; }
+        .password-cell input { flex: 1; }
+        .action-cell { white-space: nowrap; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+        .modal h3 { margin-top: 0; }
+        .modal h3.warning { color: #dc3545; }
+        .modal-actions { margin-top: 20px; text-align: right; }
+        .change-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 15px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .change-item {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }
+        .change-item:last-child { border-bottom: none; }
+        .change-item .key { font-weight: 600; }
+        .change-item .op {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        .change-item .op-insert { background: #d4edda; color: #155724; }
+        .change-item .op-update { background: #fff3cd; color: #856404; }
+        .change-item .op-delete { background: #f8d7da; color: #721c24; }
+        .change-item .value { color: #666; font-size: 12px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Parameter Store</h1>
+    <div id="status" class="status"></div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Key</th>
+                    <th>Value</th>
+                    <th>Type</th>
+                    <th>Timestamp</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="params-body"></tbody>
+        </table>
+
+        <div class="new-param-form">
+            <div class="form-group">
+                <label>Key</label>
+                <input type="text" id="new-key" placeholder="parameter_name">
+            </div>
+            <div class="form-group">
+                <label>Value</label>
+                <input type="text" id="new-value" placeholder="value">
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="new-type">
+                    <option value="text">Text</option>
+                    <option value="password">Password</option>
+                </select>
+            </div>
+            <button class="btn btn-secondary" onclick="addNewParam()">Add</button>
+        </div>
+
+        <div class="actions">
+            <button id="save-btn" class="btn btn-primary" onclick="showSaveModal()">Save All Changes</button>
+            <button class="btn btn-secondary" onclick="loadParams()">Refresh</button>
+            <span id="change-count" class="change-count">No pending changes</span>
+        </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div id="delete-modal" class="modal-overlay">
+        <div class="modal">
+            <h3 class="warning">Mark for Deletion</h3>
+            <p>Mark "<strong id="delete-key-name"></strong>" for deletion?</p>
+            <p><em>The parameter will be deleted when you click "Save All Changes".</em></p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">Mark for Deletion</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save confirmation modal -->
+    <div id="save-modal" class="modal-overlay">
+        <div class="modal">
+            <h3>Confirm Changes</h3>
+            <p>The following changes will be applied:</p>
+            <div id="change-list" class="change-list"></div>
+            <p><strong>This action cannot be undone.</strong></p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveChanges()">Confirm & Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let originalParams = {};
+        let modifiedParams = {};
+        let newParams = [];
+        let pendingDeletes = new Set();
+        let revealedPasswords = new Set();
+        let deleteTarget = null;
+
+        document.addEventListener('DOMContentLoaded', loadParams);
+
+        async function loadParams() {
+            try {
+                const response = await fetch('/api/list');
+                const data = await response.json();
+                originalParams = {};
+                modifiedParams = {};
+                newParams = [];
+                pendingDeletes.clear();
+                revealedPasswords.clear();
+                renderTable(data.parameters);
+                showStatus('', '');
+            } catch (error) {
+                showStatus('Failed to load: ' + error.message, 'error');
+            }
+        }
+
+        function renderTable(params) {
+            const tbody = document.getElementById('params-body');
+            tbody.innerHTML = '';
+
+            params.forEach(param => {
+                originalParams[param.key] = { ...param };
+                tbody.appendChild(createParamRow(param));
+            });
+
+            newParams.forEach((param, index) => {
+                tbody.appendChild(createNewParamRow(param, index));
+            });
+
+            updateChangeCount();
+        }
+
+        function createParamRow(param) {
+            const row = document.createElement('tr');
+            row.dataset.key = param.key;
+
+            const isPassword = param.type === 'password';
+            const isRevealed = revealedPasswords.has(param.key);
+            const isModified = !!modifiedParams[param.key];
+            const isPendingDelete = pendingDeletes.has(param.key);
+            const currentValue = modifiedParams[param.key]?.value ?? param.value;
+            const displayValue = (isPassword && param.masked && !isRevealed) ? '********' : currentValue;
+            const inputType = (isPassword && !isRevealed) ? 'password' : 'text';
+
+            if (isPendingDelete) {
+                row.classList.add('pending-delete');
+            } else if (isModified) {
+                row.classList.add('modified');
+            }
+
+            row.innerHTML = `
+                <td><strong>${esc(param.key)}</strong></td>
+                <td>
+                    <div class="password-cell">
+                        <input type="${inputType}"
+                               value="${esc(displayValue)}"
+                               onchange="markModified('${esc(param.key)}', this.value)"
+                               ${isPendingDelete ? 'disabled' : ''}
+                               ${isPassword && !isRevealed ? 'readonly' : ''}>
+                        ${isPassword && !isPendingDelete ? `<button class="btn btn-small btn-secondary" onclick="togglePassword('${esc(param.key)}')">${isRevealed ? '🙈' : '👁️'}</button>` : ''}
+                    </div>
+                </td>
+                <td><span class="type-badge type-${param.type}">${param.type}</span></td>
+                <td class="timestamp">${formatTimestamp(param.timestamp)}</td>
+                <td class="action-cell">
+                    ${(isPendingDelete || isModified)
+                        ? `<button class="btn btn-small btn-secondary" onclick="undoChange('${esc(param.key)}')">↩️</button>`
+                        : ''}
+                    ${!isPendingDelete ? `<button class="btn btn-small btn-danger" onclick="showDeleteModal('${esc(param.key)}')">🗑️</button>` : ''}
+                </td>
+            `;
+            return row;
+        }
+
+        function createNewParamRow(param, index) {
+            const row = document.createElement('tr');
+            row.classList.add('modified');
+            const isPassword = param.type === 'password';
+
+            row.innerHTML = `
+                <td><input type="text" value="${esc(param.key)}" onchange="updateNewParam(${index}, 'key', this.value)"></td>
+                <td><input type="${isPassword ? 'password' : 'text'}" value="${esc(param.value)}" onchange="updateNewParam(${index}, 'value', this.value)"></td>
+                <td>
+                    <select onchange="updateNewParam(${index}, 'type', this.value)">
+                        <option value="text" ${param.type === 'text' ? 'selected' : ''}>Text</option>
+                        <option value="password" ${param.type === 'password' ? 'selected' : ''}>Password</option>
+                    </select>
+                </td>
+                <td class="timestamp"><em>New</em></td>
+                <td class="action-cell">
+                    <button class="btn btn-small btn-danger" onclick="removeNewParam(${index})">🗑️</button>
+                </td>
+            `;
+            return row;
+        }
+
+        function getChangeCount() {
+            return Object.keys(modifiedParams).length + newParams.length + pendingDeletes.size;
+        }
+
+        function updateChangeCount() {
+            const count = getChangeCount();
+            const el = document.getElementById('change-count');
+            const btn = document.getElementById('save-btn');
+
+            if (count === 0) {
+                el.textContent = 'No pending changes';
+                el.className = 'change-count';
+                btn.disabled = true;
+            } else {
+                el.textContent = `${count} pending change${count > 1 ? 's' : ''}`;
+                el.className = 'change-count has-changes';
+                btn.disabled = false;
+            }
+        }
+
+        async function togglePassword(key) {
+            if (revealedPasswords.has(key)) {
+                revealedPasswords.delete(key);
+            } else {
+                try {
+                    const response = await fetch(`/api/get?key=${encodeURIComponent(key)}`);
+                    const data = await response.json();
+                    if (!modifiedParams[key]) {
+                        originalParams[key].value = data.value;
+                    }
+                    revealedPasswords.add(key);
+                } catch (error) {
+                    showStatus('Failed to reveal: ' + error.message, 'error');
+                    return;
+                }
+            }
+            renderTable(Object.values(originalParams));
+        }
+
+        function markModified(key, value) {
+            if (!modifiedParams[key]) {
+                modifiedParams[key] = { ...originalParams[key] };
+            }
+            modifiedParams[key].value = value;
+            renderTable(Object.values(originalParams));
+        }
+
+        function undoChange(key) {
+            delete modifiedParams[key];
+            pendingDeletes.delete(key);
+            revealedPasswords.delete(key);
+            renderTable(Object.values(originalParams));
+        }
+
+        function addNewParam() {
+            const key = document.getElementById('new-key').value.trim();
+            const value = document.getElementById('new-value').value;
+            const type = document.getElementById('new-type').value;
+
+            if (!key) {
+                showStatus('Key is required', 'error');
+                return;
+            }
+            if (originalParams[key] || newParams.some(p => p.key === key)) {
+                showStatus('Key already exists', 'error');
+                return;
+            }
+
+            newParams.push({ key, value, type });
+            document.getElementById('new-key').value = '';
+            document.getElementById('new-value').value = '';
+            document.getElementById('new-type').value = 'text';
+            renderTable(Object.values(originalParams));
+        }
+
+        function updateNewParam(index, field, value) {
+            if (newParams[index]) newParams[index][field] = value;
+        }
+
+        function removeNewParam(index) {
+            newParams.splice(index, 1);
+            renderTable(Object.values(originalParams));
+        }
+
+        function showDeleteModal(key) {
+            deleteTarget = key;
+            document.getElementById('delete-key-name').textContent = key;
+            document.getElementById('delete-modal').classList.add('show');
+        }
+
+        function closeDeleteModal() {
+            deleteTarget = null;
+            document.getElementById('delete-modal').classList.remove('show');
+        }
+
+        function confirmDelete() {
+            if (deleteTarget) {
+                pendingDeletes.add(deleteTarget);
+                delete modifiedParams[deleteTarget];
+                renderTable(Object.values(originalParams));
+            }
+            closeDeleteModal();
+        }
+
+        function showSaveModal() {
+            const changeList = document.getElementById('change-list');
+            changeList.innerHTML = '';
+
+            // New params
+            for (const param of newParams) {
+                changeList.innerHTML += `
+                    <div class="change-item">
+                        <span class="key">${esc(param.key)}</span>
+                        <span class="op op-insert">INSERT</span>
+                        <div class="value">Value: ${param.type === 'password' ? '********' : esc(param.value)}</div>
+                    </div>
+                `;
+            }
+
+            // Modified params
+            for (const [key, param] of Object.entries(modifiedParams)) {
+                changeList.innerHTML += `
+                    <div class="change-item">
+                        <span class="key">${esc(key)}</span>
+                        <span class="op op-update">UPDATE</span>
+                        <div class="value">New value: ${param.type === 'password' ? '********' : esc(param.value)}</div>
+                    </div>
+                `;
+            }
+
+            // Deletes
+            for (const key of pendingDeletes) {
+                changeList.innerHTML += `
+                    <div class="change-item">
+                        <span class="key">${esc(key)}</span>
+                        <span class="op op-delete">DELETE</span>
+                        <div class="value">This parameter will be permanently deleted</div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('save-modal').classList.add('show');
+        }
+
+        function closeSaveModal() {
+            document.getElementById('save-modal').classList.remove('show');
+        }
+
+        async function saveChanges() {
+            closeSaveModal();
+
+            const updates = [];
+
+            // Modified params
+            for (const param of Object.values(modifiedParams)) {
+                updates.push({ key: param.key, value: param.value, type: param.type });
+            }
+
+            // New params
+            for (const param of newParams) {
+                updates.push({ key: param.key, value: param.value, type: param.type });
+            }
+
+            // Deletes
+            for (const key of pendingDeletes) {
+                updates.push({ key, value: '', type: 'text', is_delete: true });
+            }
+
+            try {
+                const response = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ updates })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showStatus(`Saved ${data.count} change(s)`, 'success');
+                    await loadParams();
+                } else {
+                    showStatus('Failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showStatus('Failed: ' + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function formatTimestamp(ts) {
+            if (!ts) return '-';
+            return new Date(ts).toLocaleString(); // ts is Unix milliseconds
+        }
+
+        function esc(str) {
+            if (!str) return '';
+            return str.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Binary
+parameter-store
+
+# Data file
+data.jsonl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

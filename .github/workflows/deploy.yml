@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Check required secrets
+      run: |
+        missing=()
+        [ -z "${{ secrets.SERVER_IP }}" ] && missing+=("SERVER_IP")
+        [ -z "${{ secrets.SSH_USER }}" ] && missing+=("SSH_USER")
+        [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && missing+=("SSH_PRIVATE_KEY")
+
+        if [ ${#missing[@]} -ne 0 ]; then
+          echo "::error::Missing required secrets: ${missing[*]}"
+          exit 1
+        fi
+
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Build binary
+      run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o parameter-store .
+
+    - name: Copy files
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        source: parameter-store,ecosystem.config.js
+        target: ~/parameter-store/
+
+    - name: Start service
+      uses: appleboy/ssh-action@v1
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd ~/parameter-store
+          chmod +x parameter-store
+
+          pm2 startOrRestart ecosystem.config.js
+          pm2 save
+
+          sleep 2
+          if curl -sf http://localhost:8847/api/health > /dev/null; then
+            echo '✅ Deploy complete!'
+          else
+            echo '❌ Health check failed'
+            pm2 logs parameter-store --lines 20 --nostream
+            exit 1
+          fi
