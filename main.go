@@ -37,6 +37,7 @@ func main() {
 	http.HandleFunc("/api/update", handler.Update)    // POST - batch update
 	http.HandleFunc("/api/list", handler.List)        // GET - list all params
 	http.HandleFunc("/api/get", handler.GetUnmasked)  // GET - single param unmasked
+	http.HandleFunc("/api/history", handler.GetHistory) // GET - key change history
 	http.HandleFunc("/api/health", handler.Health)    // GET - health check
 
 	// Serve embedded web UI

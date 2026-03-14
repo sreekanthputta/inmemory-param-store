@@ -133,6 +133,28 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// GetHistory handles GET /api/history?key=xxx
+// Returns all log entries for a key showing full change history.
+func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key required"})
+		return
+	}
+
+	history := h.store.GetHistory(key)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"key":     key,
+		"history": history,
+		"count":   len(history),
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

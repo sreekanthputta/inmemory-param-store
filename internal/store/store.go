@@ -203,3 +203,36 @@ func (s *Store) Count() int {
 	defer s.mu.RUnlock()
 	return len(s.index)
 }
+
+// GetHistory returns all log entries for a given key (all inserts, updates, deletes).
+func (s *Store) GetHistory(key string) []models.Parameter {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var history []models.Parameter
+
+	file, err := os.Open(s.filePath)
+	if err != nil {
+		return history
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var param models.Parameter
+		if err := json.Unmarshal([]byte(line), &param); err != nil {
+			continue
+		}
+
+		if param.Key == key {
+			history = append(history, param)
+		}
+	}
+
+	return history
+}
