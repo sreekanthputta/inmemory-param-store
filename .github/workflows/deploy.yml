@@ -55,11 +55,16 @@ jobs:
           cd ~/parameter-store
           chmod +x parameter-store
 
-          pm2 startOrRestart ecosystem.config.js
+          echo '🔐 Loading TLS config from bashrc...'
+          eval "$(grep -E '^export TLS_(CERT|KEY)_FILE=' ~/.bashrc)"
+          echo "TLS_CERT_FILE=$TLS_CERT_FILE" > .env
+          echo "TLS_KEY_FILE=$TLS_KEY_FILE" >> .env
+
+          pm2 startOrRestart ecosystem.config.js --update-env
           pm2 save
 
           sleep 2
-          if curl -sf http://localhost:8847/api/health > /dev/null; then
+          if curl -sfk https://localhost:8847/api/health > /dev/null 2>&1 || curl -sf http://localhost:8847/api/health > /dev/null 2>&1; then
             echo '✅ Deploy complete!'
           else
             echo '❌ Health check failed'

@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 
 	"parameter-store/internal/api"
 	"parameter-store/internal/store"
@@ -48,10 +49,21 @@ func main() {
 	http.Handle("/", http.FileServer(http.FS(webContent)))
 
 	addr := fmt.Sprintf(":%d", *port)
-	fmt.Printf("Parameter Store running on http://localhost%s\n", addr)
 	fmt.Printf("Data file: %s (%d parameters loaded)\n", *dataFile, paramStore.Count())
 
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// Check for TLS certificates
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+
+	if certFile != "" && keyFile != "" {
+		fmt.Printf("Parameter Store running on https://localhost%s\n", addr)
+		if err := http.ListenAndServeTLS(addr, certFile, keyFile, nil); err != nil {
+			log.Fatalf("Server failed: %v", err)
+		}
+	} else {
+		fmt.Printf("Parameter Store running on http://localhost%s\n", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Fatalf("Server failed: %v", err)
+		}
 	}
 }
